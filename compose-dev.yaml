@@ -1,7 +1,18 @@
+# volumes:
+#   userprofile:
+#     driver: ${VOLUMES_DRIVER}
+
 services:
   workspace:
     image: becagis/workspace
-    build: .
+    build:
+      context: .
+      args:
+        - TZ=${WORKSPACE_TIMEZONE}
+        - PUID=${WORKSPACE_PUID}
+        - PGID=${WORKSPACE_PGID}
     tty: true
+    ports:
+        - "${WORKSPACE_SSH_PORT}:22"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

@@ -1,5 +1,5 @@
 # volumes:
-#   ws_userprofile:
+#   userprofile:
 #     driver: ${VOLUMES_DRIVER}
 
 services:
@@ -38,4 +38,4 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${APP_CODE_PATH_HOST}:${APP_CODE_PATH_CONTAINER}${APP_CODE_CONTAINER_FLAG}
-      # - ws_userprofile:/home/laradock
+      # - userprofile:/home/laradock

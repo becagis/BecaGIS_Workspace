@@ -1,13 +1,25 @@
 ARG UBUNTU_VERSION=latest
-FROM ubuntu:${UBUNTU_VERSION}
+FROM ubuntu:${UBUNTU_VERSION} AS base
 
 LABEL maintainer="Truong Thanh Tung <ttungbmt@gmail.com>"
 
 # Set Environment Variables
 ENV DEBIAN_FRONTEND noninteractive
 
-# Start as root
-USER root
+# Set default work directory
+WORKDIR /usr/src
+
+###########################################################################
+# Required Software's Installation
+###########################################################################
+
+RUN apt-get update -y && \
+    apt-get upgrade -y && \
+    apt-get install -y build-essential apt-transport-https ca-certificates software-properties-common
+
+RUN add-apt-repository -y ppa:ubuntugis/ppa && \
+    add-apt-repository -y ppa:ondrej/php && \
+    apt-get update -y
 
 ###########################################################################
 # Laradock non-root user:
@@ -21,11 +33,13 @@ ENV PGID ${PGID}
 
 # always run apt update when start and after add new source list, then clean up at end.
 RUN set -xe; \
-    apt-get update -yqq && \
+    apt-get update -y && \
     groupadd --force -g ${PGID} laradock && \
     useradd -l -u ${PUID} -g ${PGID} -m laradock -s /bin/bash && \
-    usermod -p "*" laradock -s /bin/bash && \
-    apt-get install -yqq \
+    usermod -s /bin/bash -aG sudo laradock && \
+    echo "laradock:laradock" | chpasswd && \
+    echo "root:root" | chpasswd && \
+    apt-get install -y \
       apt-utils \
       #
       #--------------------------------------------------------------------------
@@ -33,11 +47,26 @@ RUN set -xe; \
       #--------------------------------------------------------------------------
       #
       # Mandatory Software's such as ("php-cli", "git", "vim", ....)
-      apt-transport-https ca-certificates gnupg2  software-properties-common \
-      sudo \
-      libzip-dev zip unzip \
+      sudo make cmake \
       net-tools iputils-ping telnet \
-      git curl wget vim nano tree
+      duf neovim htop ncdu ack-grep exa \
+      git curl wget \
+      libzip-dev zip unzip
+
+
+FROM base
+
+#
+#--------------------------------------------------------------------------
+# Optional Software's Installation
+#--------------------------------------------------------------------------
+#
+# Optional Software's will only be installed if you set them to `true`
+# in the `docker-compose.yml` before the build.
+# Example:
+#   - INSTALL_NODE=false
+#   - ...
+#
 
 ###########################################################################
 # Set Timezone
@@ -83,45 +112,13 @@ RUN if [ ${INSTALL_WORKSPACE_SSH} = true ]; then \
 # ###########################################################################
 # # sshpass:
 # ###########################################################################
+
 ARG INSTALL_SSHPASS=true
 
 RUN set -eux; \
   if [ ${INSTALL_SSHPASS} = true ]; then \
     apt-get -yqq install sshpass; \
   fi;
-
-###########################################################################
-# PYTHON3:
-###########################################################################
-
-ARG INSTALL_PYTHON3=true
-
-RUN if [ ${INSTALL_PYTHON3} = true ]; then \
-  add-apt-repository -y ppa:deadsnakes/ppa && \
-  apt-get update -yqq && \
-  apt-get -y install \
-    python3 python3-all-dev python3-dev python3-pip python-is-python3 \
-    python3-pip python3-pil python3-lxml python3-pylibmc \
-    python-is-python3 \
-;fi
-
-###########################################################################
-USER root
-
-ARG INSTALL_DOCKER_CLIENT=true
-
-RUN set -eux; \
-  ###################################################################
-  # Docker Client:
-  ###########################################################################
-  if [ ${INSTALL_DOCKER_CLIENT} = true ]; then \
-    curl -sS https://download.docker.com/linux/static/stable/x86_64/docker-20.10.24.tgz -o /tmp/docker.tar.gz; \
-    tar -xzf /tmp/docker.tar.gz -C /tmp/; \
-    cp /tmp/docker/docker* /usr/local/bin; \
-    chmod +x /usr/local/bin/docker*; \
-    groupadd docker; \
-    usermod -aG docker laradock; \
-  fi
 
 ###########################################################################
 # Oh My ZSH!
@@ -131,7 +128,8 @@ USER root
 
 ARG SHELL_OH_MY_ZSH=true
 RUN if [ ${SHELL_OH_MY_ZSH} = true ]; then \
-    apt install -y zsh \
+    apt install -y zsh && \
+    bash -c "$(curl --fail --show-error --silent --location https://raw.githubusercontent.com/zdharma-continuum/zinit/HEAD/scripts/install.sh)" \
 ;fi
 
 ARG SHELL_OH_MY_ZSH_AUTOSUGESTIONS=true
@@ -169,10 +167,6 @@ bindkey "^?" backward-delete-char\n' >> /home/laradock/.zshrc && \
   ;fi \
 ;fi
 
-RUN if [ ${SHELL_OH_MY_ZSH} = true ]; then \
-    bash -c "$(curl --fail --show-error --silent --location https://raw.githubusercontent.com/zdharma-continuum/zinit/HEAD/scripts/install.sh)" \
-;fi
-
 USER root
 
 ###########################################################################
@@ -206,155 +200,68 @@ RUN if [ ${SHELL_OH_MY_ZSH} = true ]; then \
 USER root
 
 ###########################################################################
-# Node / NVM:
+# PYTHON3:
 ###########################################################################
-USER laradock
 
-# Check if NVM needs to be installed
-ARG INSTALL_NODE=true
-ARG NVM_VERSION=0.39.3
-ARG NODE_VERSION=lts/*
-ENV NODE_VERSION ${NODE_VERSION}
-ARG INSTALL_NPM_GULP=true
-ARG INSTALL_NPM_BOWER=true
-ARG INSTALL_NPM_VUE_CLI=true
-ARG INSTALL_NPM_ANGULAR_CLI=true
-ARG INSTALL_NPM_IONIC_CLI=false
-ARG NPM_REGISTRY
-ENV NPM_REGISTRY ${NPM_REGISTRY}
-ARG NPM_FETCH_RETRIES
-ENV NPM_FETCH_RETRIES ${NPM_FETCH_RETRIES}
-ARG NPM_FETCH_RETRY_FACTOR
-ENV NPM_FETCH_RETRY_FACTOR ${NPM_FETCH_RETRY_FACTOR}
-ARG NPM_FETCH_RETRY_MINTIMEOUT
-ENV NPM_FETCH_RETRY_MINTIMEOUT ${NPM_FETCH_RETRY_MINTIMEOUT}
-ARG NPM_FETCH_RETRY_MAXTIMEOUT
-ENV NPM_FETCH_RETRY_MAXTIMEOUT ${NPM_FETCH_RETRY_MAXTIMEOUT}
-ENV NVM_DIR /home/laradock/.nvm
-ARG NVM_NODEJS_ORG_MIRROR
-ENV NVM_NODEJS_ORG_MIRROR ${NVM_NODEJS_ORG_MIRROR}
+ARG INSTALL_PYTHON3=true
 
-RUN if [ ${INSTALL_NODE} = true ]; then \
-    # Install nvm (A Node Version Manager)
-    mkdir -p $NVM_DIR && \
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh | bash \
-        && . $NVM_DIR/nvm.sh \
-        && nvm install ${NODE_VERSION} \
-        && nvm use ${NODE_VERSION} \
-        && nvm alias ${NODE_VERSION} \
-        && npm cache clear --force \
-        && npm config set fetch-retries ${NPM_FETCH_RETRIES} \
-        && npm config set fetch-retry-factor ${NPM_FETCH_RETRY_FACTOR} \
-        && npm config set fetch-retry-mintimeout ${NPM_FETCH_RETRY_MINTIMEOUT} \
-        && npm config set fetch-retry-maxtimeout ${NPM_FETCH_RETRY_MAXTIMEOUT} \
-        && if [ ${NPM_REGISTRY} ]; then \
-        npm config set registry ${NPM_REGISTRY} \
-        ;fi \
-        && if [ ${INSTALL_NPM_GULP} = true ]; then \
-        npm install -g gulp \
-        ;fi \
-        && if [ ${INSTALL_NPM_BOWER} = true ]; then \
-        npm install -g bower \
-        ;fi \
-        && if [ ${INSTALL_NPM_VUE_CLI} = true ]; then \
-        npm install -g @vue/cli \
-        ;fi \
-        && if [ ${INSTALL_NPM_ANGULAR_CLI} = true ]; then \
-        npm install -g @angular/cli \
-        ;fi \
-        && if [ ${INSTALL_NPM_ANGULAR_CLI} = true ]; then \
-        npm install -g @ionic/cli \
-        ;fi \
+RUN if [ ${INSTALL_PYTHON3} = true ]; then \
+  add-apt-repository -y ppa:deadsnakes/ppa && \
+  apt-get update -yqq && \
+  apt-get -y install \
+    python3 python3-all-dev python3-dev python3-pip python-is-python3 \
+    python3-pip python3-pil python3-lxml python3-pylibmc \
+    python-is-python3 \
 ;fi
 
-# # Wouldn't execute when added to the RUN statement in the above block
-# # Source NVM when loading bash since ~/.profile isn't loaded on non-login shell
-# RUN if [ ${INSTALL_NODE} = true ]; then \
-#     echo "" >> ~/.bashrc && \
-#     echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.bashrc && \
-#     echo '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm' >> ~/.bashrc \
-# ;fi
+###########################################################################
+# bat:
+###########################################################################
 
-# # Add NVM binaries to root's .bashrc
-# USER root
+ARG INSTALL_BAT=true
 
-# RUN if [ ${INSTALL_NODE} = true ]; then \
-#     echo "" >> ~/.bashrc && \
-#     echo 'export NVM_DIR="/home/laradock/.nvm"' >> ~/.bashrc && \
-#     echo '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm' >> ~/.bashrc \
-# ;fi
-
-# # Make it so the node modules can be executed with 'docker-compose exec'
-# # We'll create symbolic links into '/usr/local/bin'.
-# RUN if [ ${INSTALL_NODE} = true ]; then \
-#     find $NVM_DIR -type f -name node -exec ln -s {} /usr/local/bin/node \; && \
-#     NODE_MODS_DIR="$NVM_DIR/versions/node/$(node -v)/lib/node_modules" && \
-#     ln -s $NODE_MODS_DIR/bower/bin/bower /usr/local/bin/bower && \
-#     ln -s $NODE_MODS_DIR/gulp/bin/gulp.js /usr/local/bin/gulp && \
-#     ln -s $NODE_MODS_DIR/npm/bin/npm-cli.js /usr/local/bin/npm && \
-#     ln -s $NODE_MODS_DIR/npm/bin/npx-cli.js /usr/local/bin/npx && \
-#     ln -s $NODE_MODS_DIR/vue-cli/bin/vue /usr/local/bin/vue && \
-#     ln -s $NODE_MODS_DIR/vue-cli/bin/vue-init /usr/local/bin/vue-init && \
-#     ln -s $NODE_MODS_DIR/vue-cli/bin/vue-list /usr/local/bin/vue-list \
-# ;fi
-
-RUN if [ ${NPM_REGISTRY} ]; then \
-    . ~/.bashrc && npm config set registry ${NPM_REGISTRY} \
+RUN if [ ${INSTALL_FD} = true ]; then \
+    apt-get install -y bat && \
+    ln -s /usr/bin/batcat /usr/local/bin/bat \
 ;fi
 
-# Mount .npmrc into home folder
-COPY ./.npmrc /root/.npmrc
-COPY ./.npmrc /home/laradock/.npmrc
+###########################################################################
+# fd:
+###########################################################################
 
-# ###########################################################################
-# # PNPM:
-# ###########################################################################
+ARG INSTALL_FD=true
 
-# USER root
+RUN if [ ${INSTALL_FD} = true ]; then \
+    apt-get install -y fd-find && \
+    ln -s $(which fdfind) /usr/local/bin/fd \
+;fi
 
-# ARG INSTALL_PNPM=true
-# ENV PNPM_HOME="/home/laradock/.local/share/pnpm"
-# ENV PATH $PATH:/home/laradock/.local/share/pnpm
+###########################################################################
+# WP CLI:
+###########################################################################
 
-# RUN if [ ${INSTALL_PNPM} = true ]; then \
-#     echo "" >> ~/.bashrc && \
-#     echo 'export PNPM_HOME="/home/laradock/.local/share/pnpm"' >> ~/.bashrc && \
-#     echo 'export PATH="$PNPM_HOME:$PATH"' >> ~/.bashrc && \
-#     npx pnpm add -g pnpm \
-# ;fi
+# The command line interface for WordPress
 
-# ###########################################################################
-# # YARN:
-# ###########################################################################
+USER root
 
-# USER laradock
+ARG INSTALL_WP_CLI=true
 
-# ARG INSTALL_YARN=true
-# ARG YARN_VERSION=latest
-# ENV YARN_VERSION ${YARN_VERSION}
+RUN if [ ${INSTALL_WP_CLI} = true ]; then \
+    curl -fsSL -o /usr/local/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar | bash && \
+    chmod +x /usr/local/bin/wp \
+;fi
 
-# RUN if [ ${INSTALL_YARN} = true ]; then \
-#     [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && \
-#     if [ ${YARN_VERSION} = "latest" ]; then \
-#         curl -o- -L https://yarnpkg.com/install.sh | bash; \
-#     else \
-#         curl -o- -L https://yarnpkg.com/install.sh | bash -s -- --version ${YARN_VERSION}; \
-#     fi && \
-#     echo "" >> ~/.bashrc && \
-#     echo 'export PATH="$HOME/.yarn/bin:$PATH"' >> ~/.bashrc \
-# ;fi
+###########################################################################
+# DNS utilities:
+###########################################################################
 
-# # Add YARN binaries to root's .bashrc
-# USER root
+USER root
 
-# RUN if [ ${INSTALL_YARN} = true ]; then \
-#     echo "" >> ~/.bashrc && \
-#     echo 'export YARN_DIR="/home/laradock/.yarn"' >> ~/.bashrc && \
-#     echo 'export PATH="$YARN_DIR/bin:$PATH"' >> ~/.bashrc \
-# ;fi
+ARG INSTALL_DNSUTILS=false
 
-# # Add PATH for YARN
-# ENV PATH $PATH:/home/laradock/.yarn/bin
+RUN if [ ${INSTALL_DNSUTILS} = true ]; then \
+    apt-get update && apt-get install -y dnsutils \
+;fi
 
 #
 #--------------------------------------------------------------------------
@@ -369,5 +276,7 @@ USER root
 #     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
 #     rm /var/log/lastlog /var/log/faillog
 
-# Set default work directory
-WORKDIR /var/www
+# COPY start-container /usr/local/bin/start-container
+# RUN chmod +x /usr/local/bin/start-container
+
+# ENTRYPOINT ["start-container"]
