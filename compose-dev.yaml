@@ -1,18 +1,56 @@
-# volumes:
-#   userprofile:
-#     driver: ${VOLUMES_DRIVER}
+volumes:
+  wsprofile:
+    driver: local
+
+networks:
+  default:
+  shared-proxy:
+    driver: overlay
+    external: true
 
 services:
+  ### Workspace Utilities ##################################
   workspace:
-    image: becagis/workspace
-    build:
-      context: .
-      args:
-        - TZ=${WORKSPACE_TIMEZONE}
-        - PUID=${WORKSPACE_PUID}
-        - PGID=${WORKSPACE_PGID}
+    image: ttungbmt/workspace
+    container_name: workspace
+    restart: unless-stopped
+    privileged: true
+    working_dir: /home/ubuntu/WORKSPACE
     tty: true
-    ports:
-        - "${WORKSPACE_SSH_PORT}:22"
+    environment:
+      - DOCKER_HOST=tcp://host.docker.internal:2375
+      - DOCKER_TLS_VERIFY=
+      - CHOKIDAR_USEPOLLING=true
+      - NODE_OPTIONS=--openssl-legacy-provider
     volumes:
+      # - wsprofile:/home/ubuntu
+      - ../WORKSPACE:/home/ubuntu/WORKSPACE:cached
+    ports:
+      - "2200:22"
+      - "9001:9001"
+      - "8000"
+      - "8080"
+      - "3000"
+    networks:
+      - shared-proxy
+      - default
+
+
+  ### Traefik ##############################################
+  reverse-proxy:
+    # The official v2 Traefik docker image
+    image: traefik:v2.10
+    restart: unless-stopped
+    # Enables the web UI and tells Traefik to listen to docker
+    command: --api.insecure=true --providers.docker
+    ports:
+      # The HTTP port
+      - "80:80"
+      # The Web UI (enabled by --api.insecure=true)
+      - "8080:8080"
+    volumes:
+      # So that Traefik can listen to the Docker events
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - shared-proxy
+      - default
